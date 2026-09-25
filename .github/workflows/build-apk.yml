@@ -51,48 +51,29 @@ jobs:
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
-          echo "======================================"
-          echo "ANDROID_HOME:"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          echo "Using SDK:"
           echo "$ANDROID_HOME"
-          echo "======================================"
-
-          echo "Searching for sdkmanager..."
-
-          SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -n 1)
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found"
-            exit 1
-          fi
 
           echo "Using sdkmanager:"
           echo "$SDKMANAGER"
 
-          echo "======================================"
-          echo "Accepting Android SDK licenses..."
-          echo "======================================"
+          if [ ! -f "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
 
+          echo "Accepting Android SDK licenses..."
           yes | "$SDKMANAGER" --licenses || true
 
-          echo "======================================"
-          echo "Installing Android SDK packages..."
-          echo "======================================"
-
+          echo "Installing Android SDK 35..."
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo "======================================"
-          echo "Accepting licenses again..."
-          echo "======================================"
-
-          yes | "$SDKMANAGER" --licenses || true
-
-          echo "======================================"
-          echo "Installed SDK packages:"
-          echo "======================================"
-
+          echo "Checking installed packages..."
           "$SDKMANAGER" --list_installed || true
 
       - name: Install Buildozer
@@ -101,17 +82,34 @@ jobs:
           pip install --upgrade buildozer
           pip install --upgrade cython
 
+      - name: Prepare Buildozer Android SDK
+        run: |
+          echo "Preparing Buildozer SDK..."
+
+          mkdir -p "$HOME/.buildozer/android/platform/android-sdk"
+
+          rm -rf "$HOME/.buildozer/android/platform/android-sdk"
+
+          ln -s "$ANDROID_HOME" \
+            "$HOME/.buildozer/android/platform/android-sdk"
+
+          echo "Buildozer SDK:"
+          ls -la "$HOME/.buildozer/android/platform/"
+
+          echo "Build tools:"
+          ls -la "$ANDROID_HOME/build-tools/"
+
+          echo "AIDL:"
+          find "$ANDROID_HOME/build-tools" -name aidl -type f || true
+
       - name: Verify project
         run: |
           echo "======================================"
-          echo "Current directory:"
+          echo "PROJECT"
+          echo "======================================"
+
           pwd
-
-          echo "======================================"
-          echo "Project files:"
           ls -la
-
-          echo "======================================"
 
           test -f main.py
           test -f buildozer.spec
@@ -134,7 +132,7 @@ jobs:
           echo "======================================"
 
           if [ -f build.log ]; then
-            tail -n 150 build.log
+            tail -n 200 build.log
           else
             echo "build.log was not created."
           fi
