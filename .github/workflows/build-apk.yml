@@ -48,15 +48,57 @@ jobs:
         run: |
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
 
-          yes | sdkmanager --licenses || true
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
-          sdkmanager \
+          echo "======================================"
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
+          echo "======================================"
+
+          echo "Searching for sdkmanager..."
+
+          find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null || true
+
+          SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
+
+          echo "Using sdkmanager:"
+          echo "$SDKMANAGER"
+
+          chmod +x "$SDKMANAGER"
+
+          echo "======================================"
+          echo "Accepting Android SDK licenses..."
+          echo "======================================"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          echo "======================================"
+          echo "Installing Android SDK packages..."
+          echo "======================================"
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "build-tools;37.0.0"
+            "build-tools;35.0.0"
 
-          yes | sdkmanager --licenses || true
+          echo "======================================"
+          echo "Accepting licenses again..."
+          echo "======================================"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          echo "======================================"
+          echo "Installed SDK packages:"
+          echo "======================================"
+
+          "$SDKMANAGER" --list_installed || true
 
       - name: Install Buildozer
         run: |
@@ -66,11 +108,15 @@ jobs:
 
       - name: Verify project
         run: |
+          echo "======================================"
           echo "Current directory:"
           pwd
 
-          echo "Files:"
+          echo "======================================"
+          echo "Project files:"
           ls -la
+
+          echo "======================================"
 
           test -f main.py
           test -f buildozer.spec
@@ -88,15 +134,18 @@ jobs:
       - name: Show build result
         if: always()
         run: |
-          echo "================ BUILD RESULT ================"
+          echo "======================================"
+          echo "BUILD RESULT"
+          echo "======================================"
 
           if [ -f build.log ]; then
-            tail -n 100 build.log
+            echo "Last 150 lines of build log:"
+            tail -n 150 build.log
           else
             echo "build.log was not created."
           fi
 
-          echo "=============================================="
+          echo "======================================"
 
       - name: Upload build log
         if: always()
