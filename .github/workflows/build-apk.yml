@@ -53,10 +53,10 @@ jobs:
 
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-          echo "Using SDK:"
+          echo "Android SDK:"
           echo "$ANDROID_HOME"
 
-          echo "Using sdkmanager:"
+          echo "SDK Manager:"
           echo "$SDKMANAGER"
 
           if [ ! -f "$SDKMANAGER" ]; then
@@ -64,16 +64,14 @@ jobs:
             exit 1
           fi
 
-          echo "Accepting Android SDK licenses..."
           yes | "$SDKMANAGER" --licenses || true
 
-          echo "Installing Android SDK 35..."
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo "Checking installed packages..."
+          echo "Installed SDK:"
           "$SDKMANAGER" --list_installed || true
 
       - name: Install Buildozer
@@ -82,30 +80,42 @@ jobs:
           pip install --upgrade buildozer
           pip install --upgrade cython
 
-      - name: Prepare Buildozer Android SDK
+      - name: Prepare Buildozer SDK
         run: |
-          echo "Preparing Buildozer SDK..."
+          echo "Preparing Buildozer Android SDK..."
 
-          mkdir -p "$HOME/.buildozer/android/platform/android-sdk"
+          mkdir -p "$HOME/.buildozer/android/platform"
 
           rm -rf "$HOME/.buildozer/android/platform/android-sdk"
 
-          ln -s "$ANDROID_HOME" \
+          cp -r "$ANDROID_HOME" \
             "$HOME/.buildozer/android/platform/android-sdk"
 
-          echo "Buildozer SDK:"
-          ls -la "$HOME/.buildozer/android/platform/"
+          echo "Creating legacy sdkmanager path..."
+
+          mkdir -p \
+            "$HOME/.buildozer/android/platform/android-sdk/tools/bin"
+
+          ln -sf \
+            "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager" \
+            "$HOME/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager"
+
+          echo "SDK manager paths:"
+          ls -la \
+            "$HOME/.buildozer/android/platform/android-sdk/tools/bin/"
+
+          echo "Modern SDK manager:"
+          ls -la \
+            "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/"
 
           echo "Build tools:"
-          ls -la "$ANDROID_HOME/build-tools/"
-
-          echo "AIDL:"
-          find "$ANDROID_HOME/build-tools" -name aidl -type f || true
+          ls -la \
+            "$HOME/.buildozer/android/platform/android-sdk/build-tools/"
 
       - name: Verify project
         run: |
           echo "======================================"
-          echo "PROJECT"
+          echo "PROJECT FILES"
           echo "======================================"
 
           pwd
