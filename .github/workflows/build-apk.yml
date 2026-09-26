@@ -174,38 +174,45 @@ jobs:
           echo "STARTING BUILD"
           echo "======================================"
 
+          echo "Python:"
           python --version
+
+          echo "Pip:"
           python -m pip --version
+
+          echo "Python path:"
           which python
 
-          buildozer -v android debug 2>&1 | tee build.log
+          echo "Buildozer:"
+          buildozer --version
 
-          exit ${PIPESTATUS[0]}
+          echo "======================================"
+          echo "RUNNING BUILDOZER"
+          echo "======================================"
+
+          buildozer -v android debug
 
 
-      - name: Show build result
+      - name: Check APK
         if: always()
         run: |
           echo "======================================"
-          echo "BUILD RESULT"
+          echo "APK CHECK"
           echo "======================================"
 
-          if [ -f build.log ]; then
-            tail -n 250 build.log
+          echo "Current directory:"
+          pwd
+
+          echo "Files:"
+          ls -la
+
+          echo "Bin directory:"
+
+          if [ -d bin ]; then
+            ls -lah bin
           else
-            echo "build.log was not created."
+            echo "bin directory does not exist."
           fi
-
-          echo "======================================"
-
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Doctor-Mobile-Build-Log
-          path: build.log
-          if-no-files-found: warn
 
 
       - name: Upload APK
