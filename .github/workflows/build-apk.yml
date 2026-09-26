@@ -1,31 +1,39 @@
-name: Build Doctor Mobile APK
+name: Build APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-
-      - name: Setup Python
+      # ---------------------------------------
+      # Python 3.11 برای Buildozer
+      # ---------------------------------------
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # ---------------------------------------
+      # Java 17
+      # ---------------------------------------
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      - name: Check Python
-        run: |
-          python --version
-          python -m pip --version
-          which python
-
-
+      # ---------------------------------------
+      # System dependencies
+      # ---------------------------------------
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -34,92 +42,85 @@ jobs:
             git \
             zip \
             unzip \
+            openjdk-17-jdk \
             autoconf \
-            automake \
             libtool \
             pkg-config \
             zlib1g-dev \
             libncurses5-dev \
             libncursesw5-dev \
+            libtinfo5 \
             cmake \
             libffi-dev \
             libssl-dev \
-            openjdk-17-jdk
+            build-essential
 
-
-      - name: Configure Java 17
+      # ---------------------------------------
+      # Python tools
+      # ---------------------------------------
+      - name: Install Buildozer
         run: |
-          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> "$GITHUB_ENV"
-          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> "$GITHUB_PATH"
+          python -m pip install --upgrade pip
+          python -m pip install \
+            buildozer \
+            "Cython==0.29.36" \
+            virtualenv
 
-          java -version
-          javac -version
-
-
+      # ---------------------------------------
+      # Android SDK
+      # ---------------------------------------
       - name: Setup Android SDK
         run: |
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          export ANDROID_HOME="$HOME/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
 
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+
+          wget -q \
+            https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip \
+            -O /tmp/cmdline-tools.zip
+
+          unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools"
+
+          mv \
+            "$ANDROID_HOME/cmdline-tools/cmdline-tools" \
+            "$ANDROID_HOME/cmdline-tools/latest"
+
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-          echo "Android SDK:"
-          echo "$ANDROID_HOME"
-
-          echo "SDK Manager:"
-          echo "$SDKMANAGER"
-
-          if [ ! -f "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found"
-            exit 1
-          fi
-
-          yes | "$SDKMANAGER" --licenses || true
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
 
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo "Installed SDK:"
-          "$SDKMANAGER" --list_installed || true
-
-
-      - name: Install Buildozer
+      # ---------------------------------------
+      # Buildozer directories
+      # ---------------------------------------
+      - name: Prepare Buildozer
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade buildozer
-          python -m pip install --upgrade cython
-
-          buildozer --version
-          cython --version
-
-
-      - name: Clean old Buildozer environment
-        run: |
-          echo "Cleaning old Buildozer environment..."
-
-          rm -rf "$HOME/.buildozer"
-          rm -rf ".buildozer"
-          rm -rf "bin"
-
-          echo "Clean completed."
-
-
-      - name: Prepare Buildozer SDK
-        run: |
-          echo "Preparing Buildozer Android SDK..."
+          rm -rf .buildozer
 
           mkdir -p "$HOME/.buildozer/android/platform"
 
+          # Buildozer sometimes expects the old sdkmanager path
+          mkdir -p "$HOME/.buildozer/android/platform/android-sdk/tools/bin"
+
+          ln -sf \
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "$HOME/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager"
+
+          # Make Buildozer use the GitHub Actions SDK
           rm -rf "$HOME/.buildozer/android/platform/android-sdk"
 
-          cp -r "$ANDROID_HOME" \
+          cp -R "$ANDROID_HOME" \
             "$HOME/.buildozer/android/platform/android-sdk"
-
-          echo "Creating legacy sdkmanager path..."
 
           mkdir -p \
             "$HOME/.buildozer/android/platform/android-sdk/tools/bin"
@@ -128,97 +129,108 @@ jobs:
             "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager" \
             "$HOME/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager"
 
-          echo "SDK manager paths:"
-
-          ls -la \
-            "$HOME/.buildozer/android/platform/android-sdk/tools/bin/"
-
-          echo "Modern SDK manager:"
-
-          ls -la \
-            "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/"
-
-          echo "Build tools:"
-
-          ls -la \
-            "$HOME/.buildozer/android/platform/android-sdk/build-tools/"
-
-
-      - name: Verify project
+      # ---------------------------------------
+      # PATCH: prevent p4a pip corruption
+      #
+      # p4a creates:
+      # python -m venv venv
+      #
+      # We change it to:
+      # python -m venv --clear venv
+      #
+      # Also constrain pip < 26.
+      # ---------------------------------------
+      - name: Prepare p4a patch
         run: |
-          echo "======================================"
-          echo "PROJECT FILES"
-          echo "======================================"
+          cat > "$GITHUB_WORKSPACE/pip-constraints.txt" <<'EOF'
+          pip<26
+          EOF
 
-          pwd
-          ls -la
+          echo "PIP_CONSTRAINT=$GITHUB_WORKSPACE/pip-constraints.txt" >> "$GITHUB_ENV"
 
-          test -f main.py
-          test -f buildozer.spec
+          echo "PIP constraint:"
+          cat "$GITHUB_WORKSPACE/pip-constraints.txt"
 
-          echo "main.py found"
-          echo "buildozer.spec found"
+      # ---------------------------------------
+      # Install / checkout p4a
+      # ---------------------------------------
+      - name: Prepare python-for-android
+        run: |
+          P4A_DIR="$HOME/.buildozer/android/platform/python-for-android"
 
-          echo "======================================"
-          echo "BUILD CONFIG"
-          echo "======================================"
+          rm -rf "$P4A_DIR"
 
-          cat buildozer.spec
+          git clone \
+            --depth 1 \
+            --branch v2026.05.09 \
+            https://github.com/kivy/python-for-android.git \
+            "$P4A_DIR"
 
+          cd "$P4A_DIR"
 
+          echo "p4a version:"
+          git describe --tags --always || true
+
+          echo "Applying venv --clear patch..."
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("pythonforandroid/build.py")
+
+          text = path.read_text()
+
+          old = "shprint(host_python, '-m', 'venv', 'venv')"
+          new = "shprint(host_python, '-m', 'venv', '--clear', 'venv')"
+
+          if old in text:
+              text = text.replace(old, new, 1)
+              path.write_text(text)
+              print("PATCH APPLIED")
+          elif new in text:
+              print("PATCH ALREADY PRESENT")
+          else:
+              raise SystemExit(
+                  "ERROR: Could not find p4a venv line to patch."
+              )
+          PY
+
+          echo "Checking patch:"
+          grep -n "venv.*clear" pythonforandroid/build.py || true
+
+      # ---------------------------------------
+      # Build APK
+      # ---------------------------------------
       - name: Build APK
-        id: build_apk
-        continue-on-error: true
+        env:
+          PIP_CONSTRAINT: ${{ env.PIP_CONSTRAINT }}
         run: |
-          echo "======================================"
-          echo "STARTING BUILD"
-          echo "======================================"
+          export ANDROID_HOME="$HOME/.buildozer/android/platform/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
 
           echo "Python:"
           python --version
 
-          echo "Pip:"
-          python -m pip --version
+          echo "Java:"
+          java -version
 
-          echo "Python path:"
-          which python
+          echo "PIP_CONSTRAINT:"
+          echo "$PIP_CONSTRAINT"
 
           echo "Buildozer:"
           buildozer --version
 
-          echo "======================================"
-          echo "RUNNING BUILDOZER"
-          echo "======================================"
+          echo "Starting APK build..."
 
           buildozer -v android debug
 
-
-      - name: Check APK
-        if: always()
-        run: |
-          echo "======================================"
-          echo "APK CHECK"
-          echo "======================================"
-
-          echo "Current directory:"
-          pwd
-
-          echo "Files:"
-          ls -la
-
-          echo "Bin directory:"
-
-          if [ -d bin ]; then
-            ls -lah bin
-          else
-            echo "bin directory does not exist."
-          fi
-
-
+      # ---------------------------------------
+      # Upload APK
+      # ---------------------------------------
       - name: Upload APK
-        if: steps.build_apk.outcome == 'success'
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Doctor-Mobile-APK
+          name: doctor-mobile-apk
           path: bin/*.apk
           if-no-files-found: error
